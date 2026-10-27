@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# Run a command with sudo, asking for the password in a desktop dialog.
+# Run a command as root, asking for the password in a desktop dialog.
 # Usage: gsudo <command> [args...]   (same as sudo, minus the terminal prompt)
+#
+# ASKPASS_PROMPT_MODE picks the dialog:
+#   auto    (default) native system dialog via pkexec when a polkit agent runs, else zenity
+#   pkexec  always the native system dialog
+#   zenity  always the zenity/yad/kdialog dialog through sudo -A
 set -u
 here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 
@@ -12,6 +17,21 @@ fi
 # Already authorized (cached timestamp or NOPASSWD): no dialog needed.
 if sudo -n true 2>/dev/null; then
   exec sudo "$@"
+fi
+
+has_polkit_agent() {
+  command -v pkexec >/dev/null 2>&1 || return 1
+  pgrep -u "$(id -u)" -f '(^|/)(gnome-shell|cinnamon|polkit-[a-z]+-authentication-agent-1|lxpolkit|xfce-polkit)( |$)' >/dev/null 2>&1
+}
+
+mode="${ASKPASS_PROMPT_MODE:-auto}"
+if [ "$mode" = auto ]; then
+  if has_polkit_agent; then mode=pkexec; else mode=zenity; fi
+fi
+
+if [ "$mode" = pkexec ]; then
+  # pkexec starts in root's home with a clean environment; keep the caller's cwd.
+  exec pkexec /usr/bin/env --chdir="$PWD" "$@"
 fi
 
 export SUDO_ASKPASS="$here/askpass"
