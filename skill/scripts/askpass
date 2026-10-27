@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# SUDO_ASKPASS helper: shows a graphical password dialog and prints the
+# password on stdout for sudo. Exits non-zero when the user cancels.
+set -u
+
+prompt="${1:-Password:}"
+cmd="${ASKPASS_PROMPT_CMD:-}"
+title="sudo: agent needs your password"
+text="An agentic CLI wants to run as root:"
+if [ -n "$cmd" ]; then
+  text="$text\n\n<tt>$(printf '%s' "$cmd" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')</tt>"
+fi
+text="$text\n\n$prompt"
+
+# Agent shells sometimes lose the session's display variables; recover them.
+uid="$(id -u)"
+: "${XDG_RUNTIME_DIR:=/run/user/$uid}"
+export XDG_RUNTIME_DIR
+if [ -z "${WAYLAND_DISPLAY:-}" ] && [ -z "${DISPLAY:-}" ]; then
+  for s in "$XDG_RUNTIME_DIR"/wayland-[0-9]; do
+    [ -S "$s" ] && export WAYLAND_DISPLAY="${s##*/}" && break
+  done
+  [ -S /tmp/.X11-unix/X0 ] && export DISPLAY=:0
+fi
+: "${DBUS_SESSION_BUS_ADDRESS:=unix:path=$XDG_RUNTIME_DIR/bus}"
+export DBUS_SESSION_BUS_ADDRESS
+
+if command -v zenity >/dev/null 2>&1; then
+  exec zenity --password --title="$title" --text="$text" 2>/dev/null
+elif command -v yad >/dev/null 2>&1; then
+  exec yad --entry --hide-text --title="$title" --text="$text" --center --on-top 2>/dev/null
+elif command -v kdialog >/dev/null 2>&1; then
+  exec kdialog --title "$title" --password "$(printf '%b' "$text" | sed 's/<[^>]*>//g')" 2>/dev/null
+fi
+
+echo "askpass: no zenity, yad or kdialog found (sudo apt install zenity)" >&2
+exit 1
